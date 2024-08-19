@@ -3,108 +3,113 @@
 В домашних заданиях вы можете менять сигнатуры методов/интерфейс, если на написано обратного. Если в задании нужно
 реализовать определенную функцию, которая уже объявлена за вас, в таких случаях ее сигнатуру менять нельзя. То же
 касается и интерфейсов/адт: если задана четкая структура с полями трейтов/классов, то ее можно только дополнять для
-удобства вашего решения, но не менять кардинально.
+удобства вашего решения, но не менять.
 
 ## Важно: автоматические 0 баллов за работу, если:
+
 * Сдано после дедлайна
 * Красный CI (даже если падает только scalafmt)
 * Если CI проходит, но было выполнено 0 тестов
 * Есть правки в условии, которые не разрешены в условии
-* Если есть действия после дедлайна, которые меняют код 
+* Если есть действия после дедлайна, которые меняют код
 
-# Json Codecs
+# Сериализуемся
 
-Ваша задача реализовать json парсер, <b>используя тайпклассы</b>.
-Программа должна уметь парсить из/в Json:
+### Encoder / Decoder (easy lvl)
 
-* строки
-* целые числа
-* числа с плавающей запятой
-* листы
-* опциональные значения
-* кастомные пользовательские типы
+В данном задании вам нужно научиться выполнять сериализацию и десериализацию вашего case class, для начала попробуем
+написать свой `Encoder` и `Decoder` для `Json` руками. (реализуйте `companyEmployeeEncoder/companyEmployeeDecoder`
+и `employeeEncoder/employeeDecoder` в компаньоне классов `CompanyEmployee` и `Employee` соответственно). Ожидаемое
+поведение - можете подсмотреть в тестах.
 
-### Json
+### Encoder (medium lvl)
 
-`Json` может быть отображен нулом, строкой, числами, массивом или json объектом
+В продолжении предыдущего задания: вы наверное заметили, что писать руками для каждого поля описание того как его надо
+сериализовать и десериализовать - монотонно, однотипно и избыточно, т.к. везде всё одинаково и повторяется, а ещё легко
+допустить ошибку. Для того чтобы не дублировать однотипный код в scala есть возможность деривации нужного вам типа. Есть
+разные механизмы, например явное выведение через implicit, или использование макросов (они есть!). В этом задании вам
+предлагается написать implicit для выведения `Encoder`'а для произвольного case class. (реализуйте
+метод `def autoDerive[A]: Encoder[A]` в компаньоне `Encoder`)
 
-```scala
-sealed trait Json
+Для реализации задания используйте библиотеку `shapless` и гетерогенные списки (`HList`) из неё.
 
-object Json {
-  final case object JsonNull extends Json // Нужен для кодирования опциональных полей
+### Note
 
-  final case class JsonString(value: String) extends Json
+Данные 2 задания предлагается выполнять последовательно, но если есть желаение или вы хорошо разбираетесь, можно сразу
+написать `Encoder` для любого case class и использовать его в первом задании.
 
-  final case class JsonInt(value: Int) extends Json
+Писать тесты не обязательно, только если из-за этого не проходят доп проверки на coverage.
 
-  final case class JsonDouble(value: Double) extends Json
+### Примитивный пример получения полей классов
 
-  final case class JsonArray(value: List[Json]) extends Json
+```scala worksheet
+import data.Employee
+import shapeless.labelled.FieldType
+import shapeless.{LabelledGeneric, Lazy, Witness}
+import unmarshal.encoder.Encoder
+import unmarshal.model.Json
+import unmarshal.model.Json.{JsonNum, JsonNull, JsonObject, JsonString}
 
-  final case class JsonObject(value: Map[String, Json]) extends Json
+val gen = LabelledGeneric[Employee]
+
+val employee = gen.to(Employee("Jhon", 45, 7, None))
+
+// simple type decoder (your must create decoders for all simple types)
+implicit def intDecoder[K <: Symbol]: Encoder[Int] =
+  (value: Int) => JsonNum(value)
+
+// simple type decoder with field name (dont'n use this example,
+// because it's not correct - you shouldn't create decoders which result
+// is ```JsonObject```, when it's not actually new json object).
+implicit def stringFieldDecoder[K <: Symbol](implicit
+                                             witness: Witness.Aux[K]
+                                            ): Encoder[FieldType[K, String]] = {
+  val name = witness.value.name
+
+  (value: FieldType[K, String]) => JsonObject(Map(name -> JsonString(value)))
 }
+
+// decoder for option, which use nestedEncoder. Dont'n use this example (same things as before)
+implicit def optionFieldDecoder[K <: Symbol, V](implicit
+                                                witness: Witness.Aux[K],
+                                                nestedEncoder: Lazy[Encoder[V]]
+                                               ): Encoder[FieldType[K, Option[V]]] = {
+  val name = witness.value.name
+
+  (value: FieldType[K, Option[V]]) =>
+    (value: Option[V]) match {
+      case Some(v) => JsonObject(Map(name -> nestedEncoder.value.toJson(v)))
+      case None => JsonObject(Map(name -> JsonNull))
+    }
+
+}
+
+// helpers, for correct types (you don't need it)
+def foo[K <: Symbol](value: FieldType[K, String])(implicit
+                                                  witness: Witness.Aux[K]
+): Json = stringFieldDecoder[K].toJson(value)
+
+def fooOpt[K <: Symbol](value: FieldType[K, Option[Int]])(implicit
+                                                          witness: Witness.Aux[K]
+): Json = optionFieldDecoder[K, Int].toJson(value)
+
+foo(employee.head)
+fooOpt(employee.tail.tail.tail.head)
+
 ```
 
-Для каждого Json реализовать свой инстанс Show, для отображения его в виде строки как у привычного
-json `{"key": "value"}`
+## Ссылки:
 
-### JsonWriter[A]
+* [Getting started with shapeless](https://jto.github.io/articles/getting-started-with-shapeless/)
+* [Shapeless: Introduction and HLists](https://scalerablog.wordpress.com/2015/11/23/shapeless-introduction-and-hlists-part-1/)
+* [Shapeless](https://github.com/milessabin/shapeless)
+* [Derivation example (scala 2)](https://github.com/milessabin/shapeless/blob/main/examples/src/main/scala/shapeless/examples/derivation.scala)
+* [Derivation example (scala 2, play)](https://polyglot.jamie.ly/software/2018/09/01/implementing_play_json_writers_using_scalas_shapeless)
+* [Shapeless guide (3.2 Deriving instances for products)](https://books.underscore.io/shapeless-guide/shapeless-guide.pdf)
 
-Этот тайпкласс может принимать значение типа `А` и трансформировать его в `Json` объект.
-Также у него есть summoner и синтаксическое расширение для вызова `toJson` прямо на объекте типа `А`
+### Для развития:
 
-Если для нужного типа B нет `JsonWriter[B]`, но при этом есть для типа `A :> B`, то должен
-использоваться `JsonWriter[A]`, который сериализует только те поля, которые определены в объекте `A`
-
-### JsonReader
-
-Этот тайпкласс может принимать `Json` и возвращать объект типа `Right(А)`, сконструированный из `Json`. Либо первую
-встреченную ошибку в `Left`.
-
-Для списка объектов можно ограничиться только `JsonReader[List[A]]`, другие коллекции уметь парсить не нужно.
-
-Ридер должен обладать подробным трекингом полей с ошибками:
-
-- Если ридер встречает ошибку в листе сложных элементов (кейс классов), то в ошибке должен содержаться порядковый номер
-  этого элемента и название поля с ошибкой.
-
-```scala
-case class Student(name: String, age: Int)
-
-JsonReader[List[Student]].read(JsonArray(List(JsonObject(Map("name" -> "Vasya"))))) // выдаст ошибку вида AbsentField("[0].age")
-```
-
-- Если объект является вложенным в другой объект, то название родительского поля, в котором содержится объект с ошибкой,
-  должно быть добавлено в описание ошибки
-
-```scala
-case Address(street: String, country: String)
-
-case class Student(name: String, address: Address)
-
-JsonReader[Student].read(JsonObject(Map("name" -> "Vasya", "address" -> JsonObject("street" -> "street"))))
-// например выдаст ошибку вида AbsentField("address.country")
-```
-
-Текстовка ошибок в примерах выше не финальная, вы можете скорректировать для удоства. Главное должно быть понятно, где
-именно произошла ошибка при вложенности.
-
-Как вариант, в задание предложено подобное адт ошибок:
-
-* `WrongType` - `JsonReader` нашел поле с нужным именем, но оно оказалось неподходящего типа для конструирования
-  типа `А`.
-* `AbsentField` - `JsonReader` не нашел нужного поля в исходном `Json`
-* Вы можете дополнять/модифицировать адт ошибок, если считаете предложенное недостаточным. Главное не забудьте отразить
-  новые ошибки в тестах.
-
-Весь функционал покрыть тестами. В шаблоне уже есть файл с некоторыми тестами, можете менять его как посчитаете нужным.
-Главное, чтобы в тестах были отражены:
-
-1. все возможные типы Json c учетом предоставленных кейсклассов в Person
-2. парсинг их из/в Json
-3. использование JsonWriter[A] для JsonWriter[B], где A >: B
-4. ошибки вложенных объектов
+* [Derivation (scala 3)](https://docs.scala-lang.org/scala3/reference/contextual/derivation.html)
 
 ### Code Style:
 
