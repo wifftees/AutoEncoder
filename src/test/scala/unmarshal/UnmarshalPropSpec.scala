@@ -14,12 +14,12 @@ object UnmarshalPropSpec extends Properties("Decoder & Encoder") {
   property("law x = decode(encode(x)) for CompanyEmployee") =
     forAll[CompanyEmployee, Boolean](law[CompanyEmployee](_))
 
-  property("law x = decode(encode(x)) for Employee (autoDerive)") = forAll { employee: Employee =>
+  property("law x = decode(encode(x)) for Employee (autoDerive)") = forAll { (employee: Employee) =>
     law[Employee](employee)(Decoder[Employee], Encoder.autoDerive[Employee])
   }
 
   property("law x = decode(encode(x)) for CompanyEmployee (autoDerive)") = forAll {
-    companyEmployee: CompanyEmployee =>
+    (companyEmployee: CompanyEmployee) =>
       law[CompanyEmployee](companyEmployee)(
         Decoder[CompanyEmployee],
         Encoder.autoDerive[CompanyEmployee]
@@ -32,7 +32,7 @@ object UnmarshalPropSpec extends Properties("Decoder & Encoder") {
   ): Boolean =
     decoder.fromJson(encoder.toJson(value)) == Right(value)
 
-  implicit val employeeArb: Arbitrary[Employee] = Arbitrary {
+  given employeeArb: Arbitrary[Employee] = Arbitrary {
     for {
       name   <- Gen.alphaLowerStr
       age    <- Gen.choose(18L, 85L)
@@ -41,7 +41,7 @@ object UnmarshalPropSpec extends Properties("Decoder & Encoder") {
     } yield Employee(name, age, id, bossId)
   }
 
-  implicit val companyEmployeeArb: Arbitrary[CompanyEmployee] = Arbitrary {
+  given companyEmployeeArb: Arbitrary[CompanyEmployee] = Arbitrary {
     choose(0, 12)
       .flatMap(size => Gen.listOfN(size, employeeArb.arbitrary))
       .map(CompanyEmployee(_))
